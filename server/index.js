@@ -4,11 +4,14 @@ const { Server } = require('socket.io');
 const cors = require('cors');
 const fs = require('fs');
 const path = require('path');
+const os = require('os');
 const { spawn, exec } = require('child_process');
 // ⚠️ 注意：这里假设你的 monitor.js 在 utils 目录下
 // 如果你的 monitor.js 在 server 根目录，请改为 require('./monitor')
 const monitor = require('./utils/monitor'); 
 
+// 配置文件存在用户目录下，防止误删
+const CONFIG_PATH = path.join(os.homedir(), '.devmaster-config.json');
 const app = express();
 app.use(cors());
 
@@ -45,6 +48,27 @@ const killProcessTree = (child, taskKey) => {
       process.kill(-child.pid, 'SIGKILL');
     }
   } catch (e) { console.error(e); }
+};
+
+// 辅助函数：读取所有配置
+const readConfigFile = () => {
+  try {
+    if (fs.existsSync(CONFIG_PATH)) {
+      return JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf-8'));
+    }
+  } catch (e) {
+    console.error('读取配置失败', e);
+  }
+  return {}; // 如果文件不存在或出错，返回空对象
+};
+
+// 辅助函数：写入配置
+const writeConfigFile = (data) => {
+  try {
+    fs.writeFileSync(CONFIG_PATH, JSON.stringify(data, null, 2));
+  } catch (e) {
+    console.error('写入配置失败', e);
+  }
 };
 
 const scanRecursively = (currentPath, depth = 0) => {
@@ -263,6 +287,78 @@ io.on('connection', (socket) => {
         console.error('打开文件夹失败:', err);
       }
     });
+  });
+  // 1. 获取 Git 变更 (用于发给 AI)
+  socket.on('git:get-diff', ({ projectPath }, callback) => {
+    // 获取未暂存和已暂存的所有变更
+    // 限制 3000 字符，防止 Token 爆炸
+    exec('git diff HEAD', { cwd: projectPath, maxBuffer: 1024 * 1024 }, (err, stdout) => {
+      if (err) {
+        // 可能是新仓库没有 HEAD，尝试 git status
+        exec('git status -s', { cwd: projectPath }, (e, statusOut) => {
+          callback({ diff: statusOut || '', error: null });
+        });
+      } else {
+        const diff = stdout.length > 4000 ? stdout.slice(0, 4000) + '\n...(截断)' : stdout;
+        callback({ diff: diff, error: null });
+      }
+    });
+  });
+
+  // 2. 执行 Git 提交 (自动暂存所有文件)
+  socket.on('git:commit', ({ projectPath, message }, callback) => {
+    console.log(`📝 [Git] 正在提交项目: ${projectPath}`);
+    
+    // 第一步：git add .
+    // 使用 spawn 而不是 exec，避免 Shell 注入风险
+    const addProcess = spawn('git', ['add', '.'], { cwd: projectPath });
+
+    addProcess.on('close', (code) => {
+      if (code !== 0) {
+        return callback({ success: false, error: 'git add 失败' });
+      }
+
+      // 第二步：git commit -m "message"
+      // spawn 会自动处理引号、空格和特殊字符，Mac/Windows 通吃
+      const commitProcess = spawn('git', ['commit', '-m', message], { cwd: projectPath });
+      
+      let errorMsg = '';
+      let outputMsg = '';
+
+      commitProcess.stdout.on('data', (d) => outputMsg += d.toString());
+      commitProcess.stderr.on('data', (d) => errorMsg += d.toString());
+
+      commitProcess.on('close', (commitCode) => {
+        if (commitCode === 0) {
+          console.log('✅ Git 提交成功');
+          callback({ success: true, output: outputMsg });
+        } else {
+          // 常见错误：没有变化需要提交 (Nothing to commit)
+          if (outputMsg.includes('nothing to commit')) {
+             callback({ success: true, output: '没有检测到文件变化' });
+          } else {
+             console.error('❌ Git 提交失败:', errorMsg);
+             // 如果没配置 user.email，错误信息会在这里
+             callback({ success: false, error: errorMsg || '提交失败，请检查 Git 配置' });
+          }
+        }
+      });
+    });
+  });
+
+  socket.on('config:load', (key, callback) => {
+    const allData = readConfigFile();
+    const value = allData[key] || null; // 取出对应 key 的值
+    console.log(`📖 读取配置 [${key}]`);
+    callback(value); // ✅ 发回前端
+  });
+
+  // 💾 【监听】前端请求保存配置
+  socket.on('config:save', ({ key, value }) => {
+    const allData = readConfigFile();
+    allData[key] = value; // 更新对应的 key
+    writeConfigFile(allData); // 写入硬盘
+    console.log(`💾 保存配置 [${key}] Success`);
   });
 });
 

@@ -2,9 +2,9 @@ name: Build Electron App
 
 on:
   push:
-    branches: [ main ]
     tags:
-      - 'v*' # 只有推送到 v1.0.0, v1.0.1 这种标签时，才触发 Release
+      - 'v*' # 只在推送 v1.0.0 等标签时触发
+  workflow_dispatch: # 允许在 GitHub Actions 页面手动触发
 permissions:
   contents: write
 jobs:

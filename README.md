@@ -5,7 +5,7 @@
     <b>新一代跨平台开发管理工具</b>
   </p>
   <p>
-    基于 Electron 33 + Vue + Express 构建，专为开发者打造的高效工作台。
+    基于 Electron 33 + Vue 3 + Express 5 构建，专为前端开发者打造的高效本地工作台。
   </p>
 
   <a href="https://github.com/WEBNSNM/dev-manage/actions">
@@ -17,61 +17,151 @@
   <img src="https://img.shields.io/github/license/WEBNSNM/dev-manage?style=flat-square" alt="License">
 
   <br><br>
-  
-  [下载最新版本](https://github.com/WEBNSNM/dev-manage/releases/latest) • [报告 Bug](https://github.com/WEBNSNM/dev-manage/issues)
+
+  [下载最新版本](https://github.com/WEBNSNM/dev-manage/releases/latest) · [报告 Bug](https://github.com/WEBNSNM/dev-manage/issues)
 </div>
 
 ---
-## ✨ 项目简介 (Introduction)
 
-* **🖥 可视化控制台**: 像驾驶舱一样管理你的项目。直观地查看项目列表、状态和关键信息，无需在文件资源管理器中反复跳转。
-**DevMaster** 是一个现代化的桌面端开发管理应用。是一个集成了 **前端界面 (Vue)**、**本地后端服务 (Express)** 和 **实时通信 (Socket.io)** 的完整全栈解决方案。
+## 项目简介
 
-无论你是需要管理本地进程、监控系统状态，还是进行远程服务器管理 (SSH)，DevMaster 都能提供流畅的原生体验。
+**DevMaster** 是一个面向前端开发者的桌面端项目管理工具。当你同时维护十几个甚至几十个本地项目时，DevMaster 让你告别在文件夹和终端之间反复跳转的痛苦——一个界面统一管理所有项目的启动、监控、日志查看、Git 提交和 Node 版本切换。
 
 <div align="center">
-<img src="./client/public/example.png" width="100%" height="100%" alt="DevMaster Logo">
+<img src="./client/public/example.png" width="100%" alt="DevMaster 界面预览">
 </div>
 
-## 📦 下载与安装 (Download)
+---
 
-请访问我们的 [GitHub Releases](https://github.com/WEBNSNM/dev-manage/releases) 页面下载适合你系统的版本：
+## 核心功能
+
+### 🔍 智能项目扫描
+
+选择一个工作目录，DevMaster 自动递归扫描所有包含 `package.json` 的项目（深度 4 层），并识别每个项目使用的包管理器（npm / pnpm / yarn）。扫描结果以卡片网格形式展示，支持隐藏不需要关注的项目。
+
+### ▶️ 一键脚本执行
+
+自动读取每个项目 `package.json` 中的 `scripts`，以按钮形式展示。点击即可启动，运行中的脚本以绿色高亮标识，支持一键 KILL 强制终止进程（包含子进程树）。
+
+### 📊 实时进程监控
+
+脚本启动后，DevMaster 每 2 秒采集一次进程资源数据，**聚合父子进程**（如 npm → node → vite）的 CPU 和内存占用，以可视化进度条实时展示在项目卡片中。
+
+### 📟 内嵌终端日志
+
+基于 xterm.js 的终端视图，实时展示脚本输出。支持：
+- ANSI 颜色渲染，还原真实终端效果
+- 日志复制、一键清空
+- 文件路径可点击，直接在 VS Code 中打开对应文件
+
+### 🤖 AI 智能辅助
+
+集成多模型 AI 能力，提供两个核心场景：
+
+- **AI Git 提交**：点击项目卡片的 Git 按钮，自动获取 `git diff`，由 AI 生成符合 Angular 规范的中文 Commit Message，确认后一键提交。
+- **日志智能诊断**：终端出现错误时，一键将日志上下文发送给 AI 分析，返回错误原因和修复建议（Markdown 渲染展示）。
+
+支持 **OpenAI 兼容协议**（GPT / DeepSeek / Codex 等）、**Anthropic**（Claude）、**Google Gemini** 三种 API 协议，可配置多个模型并随时切换。API Key 仅存储在本地配置文件中，通过后端代理转发请求。
+
+### 🔄 Node 版本自动切换
+
+解决多项目需要不同 Node 版本的痛点。**无需手动 `nvm use`**，DevMaster 在启动脚本时自动使用项目所需的 Node 版本。
+
+**工作原理：**
+
+1. **自动检测**：扫描项目时读取 `.nvmrc` → `.node-version` → `package.json engines.node`，使用 semver 匹配最佳已安装版本
+2. **手动覆盖**：每个项目卡片上有版本选择下拉框，可手动指定版本，覆盖配置持久化存储
+3. **进程级隔离**：通过修改子进程环境变量的 PATH，直接调用目标版本的 `node` + 对应 `cli.js`，不影响系统全局版本
+
+支持 **nvm-windows**（Windows）和 **nvm**（macOS/Linux）两种 nvm 实现。
+
+版本标签颜色含义：
+- 🟢 绿色 — 自动检测匹配
+- 🟣 紫色 — 手动指定版本
+- ⚪ 灰色 — 使用系统默认
+
+---
+
+## 技术架构
+
+```
+┌────────────────────────────────────────────┐
+│              Electron 主进程                │
+│              (main.js)                     │
+│                                            │
+│   ┌──────────────┐   ┌──────────────────┐  │
+│   │  Vue 3 前端   │◄─►│  Express 后端     │  │
+│   │  (Vite 构建)  │   │  (Socket.io)     │  │
+│   │              │   │                  │  │
+│   │  Tailwind CSS│   │  子进程管理       │  │
+│   │  xterm.js    │   │  进程监控         │  │
+│   │              │   │  Git 操作         │  │
+│   │              │   │  AI 代理          │  │
+│   │              │   │  Node 版本管理    │  │
+│   └──────────────┘   └──────────────────┘  │
+│         ▲                    ▲              │
+│         └────── Socket.io ───┘              │
+└────────────────────────────────────────────┘
+```
+
+前后端所有交互通过 **Socket.io** 实时通信，不使用 REST API。开发模式下前端独立运行在 2118 端口，生产环境由 Express 静态托管。
+
+---
+
+## 下载与安装
+
+请访问 [GitHub Releases](https://github.com/WEBNSNM/dev-manage/releases) 页面下载：
 
 | 操作系统 | 文件类型 | 说明 |
 | :--- | :--- | :--- |
-| **Windows** | `DevMaster Setup x.x.x.exe` | 推荐，包含自动更新功能 |
-| **macOS** | `DevMaster-x.x.x.dmg` | 支持 M1/M2/M3 及 Intel 芯片 |
+| **Windows** | `DevMaster Setup x.x.x.exe` | NSIS 安装包 |
+| **macOS** | `DevMaster-x.x.x.dmg` | 支持 Apple Silicon 及 Intel |
 
-## 🛠 本地开发 (Development)
+---
 
-如果你想参与贡献或在本地运行代码，请按以下步骤操作。
+## 本地开发
 
 ### 环境要求
-* Node.js >= 20.0.0 (推荐 v22 LTS)
-* npm 或 pnpm
+- Node.js >= 20.0.0（推荐 v22 LTS）
+- npm 或 pnpm
 
-### 1. 克隆项目
+### 快速开始
+
 ```bash
-git clone [https://github.com/WEBNSNM/dev-manage.git](https://github.com/WEBNSNM/dev-manage.git)
+# 克隆项目
+git clone https://github.com/WEBNSNM/dev-manage.git
 cd dev-manage
-```
-### 2.安装根目录及所有子模块依赖
-```bash
-npm install
-# 或者
-pnpm install
-```
 
-### 3.运行
-```bash
+# 安装依赖
+pnpm install
+
+# 开发模式（同时启动后端 :3000 + 前端 :2118）
 npm run dev
-```
-### 4.构建win、mac系统平台的安装包
-```bash
+
+# 以 Electron 桌面应用方式启动
+npm start
+
+# 构建安装包（Windows NSIS / macOS DMG）
 npm run dist
 ```
-### 5.打标签
-```
+
+### 发布新版本
+
+```bash
 git tag v1.0.0
 git push origin v1.0.0
 ```
+
+推送 `v*` 标签后 GitHub Actions 会自动构建 Windows + macOS 安装包并上传到 Releases。
+
+---
+
+## 配置文件
+
+用户配置持久化存储在 `~/.devmaster-config.json`，包含：
+
+- `ai_config_list` — AI 模型配置列表
+- `ai_active_id` — 当前激活的 AI 模型
+- `node_version_overrides` — 项目级 Node 版本手动覆盖
+
+---

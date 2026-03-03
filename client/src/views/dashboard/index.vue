@@ -39,7 +39,9 @@ onMounted(() => {
   })
 
   // 建立连接日志
-  socket.on('connect', () => console.log('✅ Socket已连接'))
+  socket.on('connect', () => console.log('✅ Socket已连接, id:', socket.id))
+  socket.on('disconnect', (reason) => console.warn('❌ Socket断开:', reason))
+  socket.on('reconnect', () => console.log('🔄 Socket重连成功'))
 })
 
 onUnmounted(() => {
@@ -137,6 +139,7 @@ const manualScan = () => {
 const openNativeDialog = () => socket.emit('open-folder-dialog')
 
 const handleRun = (p, script) => {
+  console.log(`[handleRun] 触发! socket.connected=${socket.connected}, 项目=${p.name}, 脚本=${script}`)
   // 如果是 dev 类脚本，清空一下旧日志
   if (['dev', 'start', 'serve'].includes(script)) {
     projectLogs.value[p.name] = []

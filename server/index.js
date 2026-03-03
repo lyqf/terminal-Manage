@@ -205,54 +205,58 @@ io.on('connection', (socket) => {
 
   // 2. 启动任务 (核心修改：加入监控 + Node 版本切换)
   socket.on('start-task', ({ projectName, script, projectPath, runner, nodeVersion }) => {
+    console.log(`📩 [start-task] 收到请求: ${projectName}:${script}, runner=${runner}, nodeVersion=${nodeVersion}`);
     const taskKey = `${projectName}:${script}`;
-    if (processes.has(taskKey)) return;
+    if (processes.has(taskKey)) {
+      console.warn(`⚠️ [start-task] 任务 ${taskKey} 已在运行中，忽略重复请求`);
+      return;
+    }
 
     const currentRunner = runner || 'npm';
 
-    // 确定使用的 Node 版本：手动指定 > 自动检测 > 系统默认
+    // 确定使用的 Node 版本和启动命令，整体包裹 try-catch 防止静默失败
     let targetNodeVersion = null;
-    if (nodeVersion && nodeVersion !== 'system') {
-      targetNodeVersion = nodeVersion;
-    } else if (!nodeVersion) {
-      // 未指定时尝试自动检测
-      const detected = nodeVersions.detectProjectNodeVersion(projectPath);
-      if (detected) {
-        const resolved = nodeVersions.resolveNodeVersion(detected.raw);
-        if (resolved) targetNodeVersion = resolved.version;
-      }
-    }
-
-    const env = targetNodeVersion
-      ? nodeVersions.buildEnvWithNodeVersion(targetNodeVersion)
-      : { ...process.env, FORCE_COLOR: '1' };
-
-    // 解析 runner 命令：切换版本时统一用目标版本的 node 直接执行 cli.js
-    // 原因：所有包装脚本（npm.cmd / npm shell script）内部都会通过 PATH 或全局前缀
-    //       查找 node，可能解析到 NVM 符号链接指向的其他版本，导致版本不匹配
-    let cmd;
+    let env = { ...process.env, FORCE_COLOR: '1' };
+    let cmd = currentRunner;
     let spawnArgs = ['run', script];
+    if (process.platform === 'win32') cmd = `${currentRunner}.cmd`;
 
-    if (targetNodeVersion) {
-      const versionDir = nodeVersions.getVersionDir(targetNodeVersion);
-      if (versionDir) {
-        const nodeExe = nodeVersions.getNodeBin(versionDir);
-        const cliJs = nodeVersions.getRunnerCliJs(versionDir, currentRunner);
-
-        if (cliJs) {
-          // 直接 node + cli.js，完全绕过包装脚本
-          cmd = nodeExe;
-          spawnArgs = [cliJs, 'run', script];
-        } else {
-          // cli.js 不存在（如 pnpm 全局安装在其他位置），回退到包装脚本 + 修改后的 PATH
-          cmd = process.platform === 'win32' ? `${currentRunner}.cmd` : currentRunner;
-          console.warn(`[Node切换] ${currentRunner} cli.js 未在 ${versionDir} 中找到，回退到 PATH 解析`);
+    try {
+      // 确定版本：手动指定 > 自动检测 > 系统默认
+      if (nodeVersion && nodeVersion !== 'system') {
+        targetNodeVersion = nodeVersion;
+      } else if (!nodeVersion) {
+        const detected = nodeVersions.detectProjectNodeVersion(projectPath);
+        if (detected) {
+          const resolved = nodeVersions.resolveNodeVersion(detected.raw);
+          if (resolved) targetNodeVersion = resolved.version;
         }
-      } else {
-        cmd = process.platform === 'win32' ? `${currentRunner}.cmd` : currentRunner;
       }
-    } else {
+
+      if (targetNodeVersion) {
+        env = nodeVersions.buildEnvWithNodeVersion(targetNodeVersion);
+
+        const versionDir = nodeVersions.getVersionDir(targetNodeVersion);
+        if (versionDir) {
+          const nodeExe = nodeVersions.getNodeBin(versionDir);
+          const cliJs = nodeVersions.getRunnerCliJs(versionDir, currentRunner);
+
+          if (cliJs) {
+            cmd = nodeExe;
+            spawnArgs = [cliJs, 'run', script];
+          } else {
+            cmd = process.platform === 'win32' ? `${currentRunner}.cmd` : currentRunner;
+            console.warn(`[Node切换] ${currentRunner} cli.js 未在 ${versionDir} 中找到，回退到 PATH 解析`);
+          }
+        }
+      }
+    } catch (e) {
+      // 版本检测或命令解析出错时，回退到默认行为
+      console.error(`[Node切换] 版本处理异常，回退到系统默认:`, e.message);
+      targetNodeVersion = null;
+      env = { ...process.env, FORCE_COLOR: '1' };
       cmd = currentRunner;
+      spawnArgs = ['run', script];
       if (process.platform === 'win32') cmd = `${currentRunner}.cmd`;
     }
 

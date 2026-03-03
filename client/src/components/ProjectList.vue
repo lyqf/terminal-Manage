@@ -72,7 +72,7 @@
           <button
             v-for="(cmd, key) in p.scripts"
             :key="key"
-            @click="$emit('run', p, key)"
+            @click="handleScriptClick(p, key)"
             :disabled="p.runningScripts?.[key]"
             :class="[
               'px-3 py-1 text-xs font-bold rounded transition text-white shadow-sm border border-transparent',
@@ -213,6 +213,12 @@ const props = defineProps({
 })
 
 const emit = defineEmits(['run', 'stop', 'open-folder', 'open-file', 'toggle-hide', 'node-version-change'])
+
+// 脚本按钮点击（带诊断日志）
+const handleScriptClick = (p, key) => {
+  console.log('[ProjectList] 按钮点击:', p.name, key, 'disabled:', !!p.runningScripts?.[key])
+  emit('run', p, key)
+}
 
 // Git 状态
 const showGitModal = ref(false);

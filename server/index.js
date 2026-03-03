@@ -12,7 +12,7 @@ const monitor = require('./utils/monitor');
 const nodeVersions = require('./utils/nodeVersions');
 
 // 配置文件存在用户目录下，防止误删
-const CONFIG_PATH = path.join(os.homedir(), '.devmaster-config.json');
+const CONFIG_PATH = path.join(os.homedir(), '.terminalManage-config.json');
 const app = express();
 app.use(cors());
 
@@ -565,7 +565,7 @@ io.on('connection', (socket) => {
 
 // --- ✨ 核心修复：监听主进程退出事件 ---
 const cleanup = () => {
-    console.log('\n\n🧹 DevMaster 正在关闭，清理所有子进程...');
+    console.log('\n\n🧹 terminalManage 正在关闭，清理所有子进程...');
     
     if (processes.size === 0) {
         console.log('✅ 没有活动的子进程。');

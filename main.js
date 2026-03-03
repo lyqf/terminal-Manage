@@ -19,7 +19,7 @@ function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1280,
     height: 800,
-    title: "DevMaster",
+    title: "terminalManage",
     icon: path.join(__dirname, 'client/dist/favicon.ico'),
     webPreferences: {
       nodeIntegration: false,
@@ -32,7 +32,7 @@ function createWindow() {
       server.listen(0, () => {
         // 获取分配到的真实端口
         const port = server.address().port;
-        console.log(`🚀 DevMaster 已启动，自动分配端口: ${port}`);
+        console.log(`🚀 terminalManage 已启动，自动分配端口: ${port}`);
         
         // 加载这个端口的页面
         mainWindow.loadURL(`http://localhost:${port}`);

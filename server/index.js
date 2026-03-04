@@ -368,10 +368,9 @@ io.on('connection', (socket) => {
     if (!projectPath) return;
 
     let cmd;
-    // 根据不同系统选择命令
+    // Windows 的 explorer 即使成功打开也会返回非零退出码，用 start 替代
     if (process.platform === 'win32') {
-      // Windows: explorer "C:\path\to\folder"
-      cmd = `explorer "${projectPath}"`;
+      cmd = `start "" "${projectPath}"`;
     } else if (process.platform === 'darwin') {
       // Mac: open "/path/to/folder"
       cmd = `open "${projectPath}"`;

@@ -121,36 +121,44 @@ const scanProjects = (dirPath) => {
 // --- Socket 逻辑 ---
 io.on('connection', (socket) => {
   console.log('User connected:', socket.id);
-// 1. 弹窗选择文件夹 (Base64 PowerShell)
+// 1. 弹窗选择文件夹
   socket.on('open-folder-dialog', () => {
-    console.log('正在唤起置顶弹窗...');
-    const psScript = `
-        Add-Type -AssemblyName System.Windows.Forms
-        $form = New-Object System.Windows.Forms.Form
-        $form.TopMost = $true
-        $form.StartPosition = "CenterScreen"
-        $form.ShowInTaskbar = $false
-        $form.Opacity = 0
-        $form.Show()
-        $form.Activate()
-        $dialog = New-Object System.Windows.Forms.FolderBrowserDialog
-        $dialog.Description = "请选择项目父目录"
-        $result = $dialog.ShowDialog($form)
-        if ($result -eq [System.Windows.Forms.DialogResult]::OK) { Write-Output $dialog.SelectedPath }
-        $form.Close()
-        $form.Dispose()
-    `;
-    const encodedCommand = Buffer.from(psScript, 'utf16le').toString('base64');
-    const child = spawn('powershell', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-EncodedCommand', encodedCommand]);
+    console.log('正在唤起文件夹选择弹窗...');
 
-    child.stdout.on('data', (data) => {
+    if (process.platform === 'win32') {
+      // Windows: 用 Shell.Application COM 对象替代 WinForms，无需加载 .NET 程序集
+      // 通过 GetForegroundWindow 获取当前前台窗口句柄，让弹窗置顶显示
+      const psScript = `
+Add-Type -Name Win32 -Namespace Native -MemberDefinition '[DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();'
+$hwnd = [Native.Win32]::GetForegroundWindow()
+$shell = New-Object -ComObject Shell.Application
+$folder = $shell.BrowseForFolder($hwnd, '请选择项目父目录', 0x51, '')
+if ($folder) { $folder.Self.Path }
+`;
+      const encodedCommand = Buffer.from(psScript, 'utf16le').toString('base64');
+      const child = spawn('powershell', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-EncodedCommand', encodedCommand]);
+
+      child.stdout.on('data', (data) => {
         const selectedPath = data.toString().trim();
         if (selectedPath) {
-            socket.emit('folder-selected', selectedPath);
-            const projects = scanProjects(selectedPath);
-            socket.emit('projects-loaded', enrichProjects(projects));
+          socket.emit('folder-selected', selectedPath);
+          const projects = scanProjects(selectedPath);
+          socket.emit('projects-loaded', enrichProjects(projects));
         }
-    });
+      });
+    } else {
+      // macOS: 使用 osascript 原生弹窗
+      const child = spawn('osascript', ['-e', 'POSIX path of (choose folder with prompt "请选择项目父目录")']);
+
+      child.stdout.on('data', (data) => {
+        const selectedPath = data.toString().trim().replace(/\/$/, '');
+        if (selectedPath) {
+          socket.emit('folder-selected', selectedPath);
+          const projects = scanProjects(selectedPath);
+          socket.emit('projects-loaded', enrichProjects(projects));
+        }
+      });
+    }
   });
 
   // 辅助函数：为项目列表补充运行状态和 Node 版本覆盖信息
